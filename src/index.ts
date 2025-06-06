@@ -2,7 +2,7 @@
  * @Author: Damon Liu
  * @Date: 2025-04-27 13:53:33
  * @LastEditors: Damon Liu
- * @LastEditTime: 2025-04-30 15:25:34
+ * @LastEditTime: 2025-06-06 11:19:52
  * @Description: 
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -70,16 +70,20 @@ server.tool('add-schedule', '添加日程或提醒，如果用户没有指定结
   }
 });
 
-server.tool('get-current-date', '获取当前日期，进行日程操作时先执行这个更新日期', {
-
-}, async () => {
+server.tool('get-current-date', '获取当前日期，进行日程操作时先执行这个更新日期', {}, async () => {
   const currentDate = new Date();
-  const formattedDate = currentDate.toISOString();
+  const year = currentDate.getFullYear();
+  const month = String(currentDate.getMonth() + 1).padStart(2, '0');
+  const day = String(currentDate.getDate()).padStart(2, '0');
+  const hours = String(currentDate.getHours()).padStart(2, '0');
+  const minutes = String(currentDate.getMinutes()).padStart(2, '0');
+  const seconds = String(currentDate.getSeconds()).padStart(2, '0');
+  const formattedDate = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
   return {
-    content: [{
-      type: 'text',
-      text: formattedDate
-    }]
+      content: [{
+          type: 'text',
+          text: formattedDate
+      }]
   };
 });
 
