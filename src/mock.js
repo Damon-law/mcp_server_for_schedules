@@ -2,7 +2,7 @@
  * @Author: Damon Liu
  * @Date: 2025-04-27 16:57:08
  * @LastEditors: Damon Liu
- * @LastEditTime: 2025-04-30 16:38:39
+ * @LastEditTime: 2025-06-09 15:23:43
  * @Description: 
  */
 import fetch from 'node-fetch';
@@ -32,5 +32,16 @@ const addSchedule = async () => {
         console.log('添加失败');
     }
 };
+const deleteScheduleUrl = `http://localhost:${3001}/api/schedules`;
+const deleteSchedule = async (id = "1749441304489") => {
+    const response = await fetch(`${deleteScheduleUrl}/${id}`, {
+        method: 'DELETE'
+    });
+    console.log(response)
+    const json = await response.json() ;
+    console.log(json)
+};
 
-addSchedule();
+deleteSchedule()
+
+//addSchedule();
