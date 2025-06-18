@@ -2,111 +2,45 @@
  * @Author: Damon Liu
  * @Date: 2025-04-27 13:53:33
  * @LastEditors: Damon Liu
- * @LastEditTime: 2025-06-16 11:15:46
+ * @LastEditTime: 2025-06-18 16:05:33
  * @Description: 
  */
+// 适配低版本的node写法
+if (!(Promise as any).withResolvers) {
+  (Promise as any).withResolvers = function <T>() {
+    let resolve!: (value: T | PromiseLike<T>) => void;
+    let reject!: (reason?: any) => void;
+    const promise = new Promise<T>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return { promise, resolve, reject };
+  };
+}
+
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import dotenv from "dotenv";
-import fetch from 'node-fetch'
-import { createServer, Server, Socket } from 'net'
-import { exec } from 'child_process';
 
-// 从命令行参数获取 --port 形式的端口号，默认为 3001
-const portIndex = process.argv.indexOf('--port');
-const port = portIndex!== -1? process.argv[portIndex + 1] || 3001 : 3001;
-const addUrl = `http://localhost:${port}/api/schedules`;
-const getUrl = `http://localhost:${port}/api/schedules/range`;
-const deleteScheduleUrl = `http://localhost:${port}/api/schedules`;
+// 以下是libp2p的库
+import { mdns } from '@libp2p/mdns'
+import { createLibp2p } from 'libp2p'
+import { tcp } from '@libp2p/tcp'
+import { yamux } from '@chainsafe/libp2p-yamux'
+import { noise } from '@chainsafe/libp2p-noise'
+import { kadDHT } from '@libp2p/kad-dht'
+import type { Libp2p } from 'libp2p'
+import { ping } from '@libp2p/ping';
+import { identify } from '@libp2p/identify';
+import { pipe } from 'it-pipe';
+//import { streamToConsole } from './stream.js';
+import * as lp from 'it-length-prefixed';
+import map from 'it-map';
+import { fromString as uint8ArrayFromString } from 'uint8arrays/from-string';
+import { toString as uint8ArrayToString } from 'uint8arrays/to-string';
+import { peerIdFromPublicKey } from '@libp2p/peer-id';
 
-const sockets: Socket[] = [];
-
-let mode: 'server' | 'client' = 'server';
-
-let socketServer: Server | null = null;
-
-const killPort = () => {
-  return new Promise((resolve) => {
-    // Windows系统查找占用3001端口的进程ID
-    exec(`netstat -ano | findstr :${port}`, (err, stdout) => {
-      if (err) {
-        console.log('未找到占用端口的进程');
-        resolve(null);
-        return;
-      }
-
-      // 解析输出获取PID
-      const lines = stdout.trim().split('\n');
-      const pids = new Set<string>();
-
-      lines.forEach(line => {
-        const parts = line.trim().split(/\s+/);
-        // netstat输出格式: [协议] [本地地址] [外部地址] [状态] [PID]
-        // 只处理状态为LISTENING的进程
-        if (parts.length >= 4 && parts[3] === 'LISTENING') {
-          const pid = parts[parts.length - 1];
-          if (!isNaN(Number(pid))) {
-            pids.add(pid);
-          }
-        }
-      });
-
-      // 杀掉所有找到的进程
-      if (pids.size > 0) {
-        pids.forEach(pid => {
-          exec(`taskkill /F /PID ${pid}`, (killErr) => {
-            if (killErr) {
-              console.error(`终止进程 ${pid} 失败:`, killErr.message);
-            } else {
-              console.log(`成功终止占用端口 ${port} 的进程 ${pid}`);
-            }
-          });
-        });
-        // 等待进程终止
-        setTimeout(resolve, 1000);
-      } else {
-        resolve(null);
-      }
-    });
-  });
-}
-
-const checkPortServerExist = () => {
-  return new Promise((resolve) => {
-    // Windows系统查找占用3001端口的进程ID
-    exec(`netstat -ano | findstr :${port}`, (err, stdout) => {
-      if (err) {
-        console.log('未找到占用端口的进程');
-        resolve(null);
-        return;
-      }
-
-      // 解析输出获取PID
-      const lines = stdout.trim().split('\n');
-      const pids = new Set<string>();
-
-      lines.forEach(line => {
-        const parts = line.trim().split(/\s+/);
-        // netstat输出格式: [协议] [本地地址] [外部地址] [状态] [PID]
-        // 只处理状态为LISTENING的进程
-        if (parts.length >= 4 && parts[3] === 'LISTENING') {
-          const pid = parts[parts.length - 1];
-          if (!isNaN(Number(pid))) {
-            pids.add(pid);
-          }
-        }
-      });
-
-      if (pids.size > 0) {
-        resolve(true);
-      } else {
-        resolve(false);
-      }
-      resolve(null);
-    });
-  });
-}
 
 dotenv.config();
 
@@ -120,28 +54,128 @@ const server = new McpServer({
     resources: {},
     tools: {},
   },
-  
+
 });
 
-server.server.onclose = () => {
-  server.server.onclose = () => {
-    // 修改关闭逻辑，添加回调和错误处理
-    if (socketServer) {
-      socketServer.close((err) => {
-        if (err) {
-          console.error('socketServer关闭错误:', err);
-        } else {
-          console.log('socketServer已关闭');
-          socketServer = null; // 重置socketServer引用
-        }
-      });
-      // 关闭所有活跃连接
-      sockets.forEach(socket => socket.destroy());
-      sockets.length = 0;
-    }
-  }
-}
 
+// 新增日程回调
+let addScheduleResolve: Function | null = null;
+// 查询日程回调
+let checkScheduleResolve: Function | null = null;
+// 删除日程回调
+let deleteScheduleResolve: Function | null = null;
+
+const chatProtocol = '/mcpSchedules/1.0.0'
+
+async function createNode(port: number): Promise<Libp2p> {
+  const node = await createLibp2p({
+    addresses: {
+      listen: [`/ip4/127.0.0.1/tcp/${port}`]
+    },
+    transports: [tcp()],
+    streamMuxers: [yamux()], // 添加流多路复用器
+    connectionEncrypters: [noise()],
+    peerDiscovery: [
+      mdns({
+        interval: 2000, // 每2秒发送一次发现广播
+        serviceTag: 'mcp-shedules-local-libp2p-network' // 自定义服务标识，避免与其他mDNS服务冲突
+      })
+    ],
+    services: {
+      // 添加ping服务依赖
+      ping: ping(),
+      identify: identify(), // Add 
+      dht: kadDHT({
+        clientMode: true
+      }),
+    } // 
+  });
+
+  // 监听节点启动事件
+  node.addEventListener('start', () => {
+    console.log(`节点已启动，ID: ${node.peerId.toString()}`)
+    const addresses = node.getMultiaddrs().map(addr => addr.toString())
+    console.log('监听地址:')
+    addresses.forEach(addr => console.log(addr))
+  });
+
+  // 监听消息事件
+  node.handle(chatProtocol, async ({ stream }) => {
+    //streamToConsole(stream as any);
+    pipe(
+      // Read from the stream (the source)
+      stream.source,
+      // Decode length-prefixed data
+      (source) => lp.decode(source),
+      // Turn buffers into strings
+      (source) => map(source, (buf) => uint8ArrayToString(buf.subarray())),
+      // Sink function
+      async function (source) {
+        // Wait for all data to be received
+        // For each chunk of data
+        for await (const msg of source) {
+          // Output the data as a utf8 string
+          console.log('> ' + msg.toString().replace('\n', ''))
+          try {
+            const res = JSON.parse(msg.toString().replace('\n', ''));
+            if (res.type === 'add-schedule-resolve') {
+              if (addScheduleResolve) {
+                addScheduleResolve(res.data);
+                addScheduleResolve = null;
+              }
+            } else if (res.type === 'check-schedule-resolve') {
+              if (checkScheduleResolve) {
+                checkScheduleResolve(res.data);
+                checkScheduleResolve = null;
+              }
+            } else if (res.type === 'delete-schedule-resolve') {
+              if (deleteScheduleResolve) {
+                deleteScheduleResolve(res.data);
+                deleteScheduleResolve = null;
+              }
+            }
+          } catch (error) {
+            if(addScheduleResolve) {
+              addScheduleResolve( {
+                message: '序列化失败'
+              } )
+            }
+            console.log('序列化失败')
+          }
+        }
+      }
+    )
+  });
+
+  // 监听节点发现事件
+  // 由于类型不兼容问题，可能需要使用更宽泛的类型或者检查导入的类型是否一致
+  // 这里尝试使用更宽泛的 CustomEvent 类型，暂时不指定具体泛型参数
+  node.addEventListener('peer:discovery', (event: CustomEvent<any>) => {
+    const peerInfo = event.detail
+    console.log(`🔍 发现新节点: ${peerInfo.id.toString()}`)
+    const multiaddr = peerInfo.multiaddrs.find((addr: any) => addr.toString().includes('tcp'));
+
+    // 自动连接发现的节点
+    node.dialProtocol(multiaddr, chatProtocol).then((stream) => {
+      //streamToConsole(stream as any)
+      console.log(`✅ 已自动连接到节点: ${peerInfo.id.toString()}`)
+    }).catch(err => {
+      console.error(`❌ 连接节点失败: ${err.message}`)
+    })
+  })
+
+  node.addEventListener('peer:disconnect', (evt: any) => {
+    //console.log(evt)
+    const peerId = peerIdFromPublicKey(evt?.detail?.publicKey)?.toString();
+    console.log(`❌ 节点断开连接: ${peerId}`)
+
+  })
+
+
+
+  await node.start()
+  return node
+}
 
 server.tool('add-schedule', '添加日程或提醒，如果用户没有指定结束时间: end，则默认结束时间为开始时间: start或提醒时间: reminder加一小时', {
   title: z.string().describe('日程标题'),
@@ -156,40 +190,43 @@ server.tool('add-schedule', '添加日程或提醒，如果用户没有指定结
   repeatEnd: z.string().describe('重复结束时间，格式： YYYY-MM-DD HH:mm:ss')
 }, async ({ title, start, end, type, reminder, description, repeatType, repeatInterval, repeatDays, repeatEnd }) => {
   try {
-    if(sockets.length) {
-      const socket = sockets[0];
-      const res = await new Promise((resolve, reject) => {
-        (socket as any)['addScheduleResolve'] = resolve;
-        socket.emit('add-schedule', { title: title, start: start, end: end, type: type, reminder: reminder, description: description, repeatType: repeatType, repeatInterval: repeatInterval, repeatDays: repeatDays, repeatEnd: repeatEnd })
-      }) as any;
-      return {
-        content: [{
-          type: 'text',
-          text: res?.id ? '日程添加成功' : '日程添加失败'
-        }]
-      };
-    }
-    else {
-      return {
-        content:[{
-          type: 'text',
-          text: '添加日程失败，暂无已连接客户端'
-        }]
-      } 
-    }
-
-    const response = await fetch(addUrl, {
-      method: 'POST',
-      body: JSON.stringify({ title: title, start: start, end: end, type: type, reminder: reminder, description: description, repeatType: repeatType, repeatInterval: repeatInterval, repeatDays: repeatDays, repeatEnd: repeatEnd }),
-      headers: {
-        'Content-Type': 'application/json'
+    const res = await new Promise((resolve, reject) => {
+      addScheduleResolve = resolve;
+      const body = { title: title, start: start, end: end, type: type, reminder: reminder, description: description, repeatType: repeatType, repeatInterval: repeatInterval, repeatDays: repeatDays, repeatEnd: repeatEnd }
+      if(node?.getPeers().length === 0) {
+        addScheduleResolve = null;
+        resolve({
+          message: '添加日程失败，没有链接节点'
+        })
       }
-    });
-    const json = await response.json() as any;
+      node?.getPeers().forEach(async (peerId) => {
+        const addr =  (await node?.peerStore.getInfo(peerId))?.multiaddrs?.find((addr: any) => addr.toString().includes('tcp'));
+        if(!addr) {
+          return ;
+        }
+        const stream = await node?.dialProtocol(addr, chatProtocol);
+        if (stream) {
+          const json = {
+            type: 'add-schedule',
+            fromPeer: node?.peerId.toString(),
+            data: body
+          }
+          pipe(
+            [JSON.stringify(json)],
+            // Turn strings into buffers
+            (source) => map(source, (string) => uint8ArrayFromString(string)),
+            // Encode with length prefix (so receiving side knows how much data is coming)
+            (source) => lp.encode(source),
+            // Write to the stream (the sink)
+            stream.sink
+          )
+        }
+      })
+    }) as any;
     return {
       content: [{
         type: 'text',
-        text: json.id ? '日程添加成功' : '日程添加失败'
+        text: res?.id ? '日程添加成功' : '日程添加失败'
       }]
     };
   }
@@ -213,10 +250,10 @@ server.tool('get-current-date', '获取当前日期，进行日程操作时先�
   const seconds = String(currentDate.getSeconds()).padStart(2, '0');
   const formattedDate = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
   return {
-      content: [{
-          type: 'text',
-          text: formattedDate
-      }]
+    content: [{
+      type: 'text',
+      text: formattedDate
+    }]
   };
 });
 
@@ -224,17 +261,42 @@ server.tool('get-schedules', '获取日程', {
   start: z.string().describe('开始时间，格式： YYYY-MM-DD HH:mm:ss'),
   end: z.string().describe('结束时间，格式： YYYY-MM-DD HH:mm:ss')
 }, async ({ start, end }) => {
-  const response = await fetch(`${getUrl}?start=${start}&end=${end}`, {
-    method: 'GET',
-    headers: {
-      'Content-Type': 'application/json'
+  const res = await new Promise((resolve, reject) => {
+    checkScheduleResolve = resolve;
+    if(node?.getPeers().length === 0) {
+      checkScheduleResolve = null;
+      resolve({
+        message: '获取日程失败，没有链接节点'
+      })
     }
-  });
-  const json = await response.json() as any;
+    node?.getPeers().forEach(async (peerId) => {
+      const addr =  (await node?.peerStore.getInfo(peerId))?.multiaddrs?.find((addr: any) => addr.toString().includes('tcp'));
+      if(!addr) {
+        return ;
+      }
+      const stream = await node?.dialProtocol(addr, chatProtocol);
+      if (stream) {
+        const json = {
+          type: 'get-schedules',
+          fromPeer: node?.peerId.toString(),
+          data: { start: start, end: end }
+        }
+        pipe(
+          [JSON.stringify(json)],
+          // Turn strings into buffers
+          (source) => map(source, (string) => uint8ArrayFromString(string)),
+          // Encode with length prefix (so receiving side knows how much data is coming)
+          (source) => lp.encode(source),
+          // Write to the stream (the sink)
+          stream.sink
+        )
+      }
+    })
+  }) as any;
   return {
-    content: [{ 
+    content: [{
       type: 'text',
-      text: JSON.stringify(json)
+      text: JSON.stringify(res)
     }]
   };
 });
@@ -242,68 +304,71 @@ server.tool('get-schedules', '获取日程', {
 server.tool('delete-schedule', '删除日程', {
   id: z.string().describe('日程id')
 }, async ({ id }) => {
-  const response = await fetch(`${deleteScheduleUrl}/${id}`, {
-    method: 'DELETE'
-  });
-  const json = await response.json() as any;
+  const res = await new Promise((resolve, reject) => {
+    deleteScheduleResolve = resolve;
+    if(node?.getPeers().length === 0) {
+      deleteScheduleResolve = null;
+      resolve({
+        message: '添加日程失败，没有链接节点'
+      })
+    }
+    node?.getPeers().forEach(async (peerId) => {
+      const addr =  (await node?.peerStore.getInfo(peerId))?.multiaddrs?.find((addr: any) => addr.toString().includes('tcp'));
+      if(!addr) {
+        return ;
+      }
+      const stream = await node?.dialProtocol(addr, chatProtocol);
+      //const stream = peerIdToStreamMap[peerId.toString()];
+      if (stream) {
+        const json = {
+          type: 'delete-schedule',
+          fromPeer: node?.peerId.toString(),
+          data: { id: id }
+        }
+        pipe(
+          [JSON.stringify(json)],
+          // Turn strings into buffers
+          (source) => map(source, (string) => uint8ArrayFromString(string)),
+          // Encode with length prefix (so receiving side knows how much data is coming)
+          (source) => lp.encode(source),
+          // Write to the stream (the sink)
+          stream.sink
+        )
+      }
+    })
+  }) as any;
   return {
     content: [{
       type: 'text',
-      text: json.id ? '日程删除成功' : '日程删除失败'
+      text: res.id ? '日程删除成功' : '日程删除失败'
     }]
   };
 });
 
 
+// p2pnode
+let node: Libp2p | null = null;
+
+
 async function main() {
   const transport = new StdioServerTransport();
+  if(!node) {
+    node = await createNode(0);
+  }
   await server.connect(transport);
-  await killPort();
-  if(server) {
-    server.server.close();
-  }
-  if(socketServer) {
-    // 修改socketServer启动逻辑，确保端口释放
-    if (socketServer) {
-      // 如果已有实例，先关闭
-      await new Promise((resolve) => {
-        socketServer!.close((err) => {
-          if (err) console.error('关闭现有socketServer错误:', err);
-          resolve(null);
-        });
-      });
-    }
-  }
-  socketServer = createServer((socket) => {
-    (socket as any).id = `${(new Date())}-${ Math.floor(Math.random() * 1e4) }`;
-    (socket as any)['addScheduleResolve'] = null;
-    sockets.push(socket);
-  
-    socket.on('data', (data) => {
-      try {
-        const dataJson = JSON.parse(data.toString());
-        if(dataJson.type === 'add-schedule') {
-          (socket as any)?.addScheduleResolve?.(dataJson.data);
-        }
-      } catch (error) {
-        
-      }
-    });
-  
-    socket.on('end', () => {
-      sockets.splice(sockets.indexOf(socket), 1);
-    });
-  });
-  socketServer?.listen(port, () => {
-  
-  });
+  // 处理 exit
+  process.on('exit', async () => {
+    await node?.stop();
+    node = null;
+    process.exit(0);
+  })
   console.error("Schedule MCP Server running on stdio");
 }
 
 // 启动
 main().catch((error) => {
   console.error("Fatal error in main():", error);
-  socketServer?.close();
-  socketServer = null;
+  node?.stop();
+  node = null;
   process.exit(1);
 });

@@ -2,14 +2,14 @@
  * @Author: Damon Liu
  * @Date: 2025-06-11 11:00:19
  * @LastEditors: Damon Liu
- * @LastEditTime: 2025-06-11 16:12:39
+ * @LastEditTime: 2025-06-18 17:21:13
  * @Description: 
 -->
 # MCP日程表 Server README
 
 这是与`[VSCode插件/Trae/Cursor/Lingma]MCP日程表` 配套使用的 `MCP Server` 端。  
 
-`MCP Server` 端用于`VSCode/Trae/Cursor/Lingma` 端大模型通过`http`请求的方式和`MCP日程表插件`实现 **增、删、查取**插件端日程的功能。
+`MCP Server` 端用于`VSCode/Trae/Cursor/Lingma` 端大模型通过`libp2p`和`mDNS`实现局域网内的对等网络和`MCP日程表插件`点对点通讯实现 **增、删、查取**插件端日程的功能。
 
 **插件地址：**
 
@@ -35,10 +35,10 @@
         {
             "mcpServers": {
                 "schedules": {
-                // 配置了fnm的情况下, 先指定你使用的node版本 --port为指定端口，VSCode插件需与MCP Server 请求端口一致， 默认3001
-                "command": "fnm exec --using=20.10.0 node 你的路径\\mcp_server_for_schedules\\build\\index.js --port 3001",
+                // 配置了fnm的情况下, 先指定你使用的node版本
+                "command": "fnm exec --using=20.10.0 node 你的路径\\mcp_server_for_schedules\\build\\index.js",
                 // 正常node
-                "command": "node 你的路径\\mcp_server_for_schedules\\build\\index.js --port 3001"
+                "command": "node 你的路径\\mcp_server_for_schedules\\build\\index.js"
                 }
             }
         }
@@ -67,10 +67,10 @@ Cursor中使用方法：
         {
             "mcpServers": {
                 "schedules": {
-                // 配置了fnm的情况下，先指定你使用的node版本， --port为指定端口，VSCode插件需与MCP Server 请求端口一致， 默认3001
-                "command": "fnm exec --using=20.10.0 node 你的路径\\mcp_server_for_schedules\\build\\index.js --port 3001"
+                // 配置了fnm的情况下，先指定你使用的node版本
+                "command": "fnm exec --using=20.10.0 node 你的路径\\mcp_server_for_schedules\\build\\index.js"
                 // 正常node
-                "command": "node 你的路径\\mcp_server_for_schedules\\build\\index.js --port 3001"
+                "command": "node 你的路径\\mcp_server_for_schedules\\build\\index.js"
                 }
             }
         }
@@ -132,10 +132,10 @@ Trae中使用方法：
         {
             "mcpServers": {
                 "schedules": {
-                // 配置了fnm的情况下，先指定你使用的node版本， --port为指定端口，VSCode插件需与MCP Server 请求端口一致， 默认3001
-                "command": "fnm exec --using=20.10.0 node 你的路径\\mcp_server_for_schedules\\build\\index.js --port 3001"
+                // 配置了fnm的情况下，先指定你使用的node版本
+                "command": "fnm exec --using=20.10.0 node 你的路径\\mcp_server_for_schedules\\build\\index.js"
                 // 正常node
-                "command": "node 你的路径\\mcp_server_for_schedules\\build\\index.js --port 3001"
+                "command": "node 你的路径\\mcp_server_for_schedules\\build\\index.js"
                 }
             }
         }
