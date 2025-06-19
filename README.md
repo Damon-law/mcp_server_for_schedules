@@ -2,7 +2,7 @@
  * @Author: Damon Liu
  * @Date: 2025-06-11 11:00:19
  * @LastEditors: Damon Liu
- * @LastEditTime: 2025-06-18 17:21:13
+ * @LastEditTime: 2025-06-19 10:57:09
  * @Description: 
 -->
 # MCP日程表 Server README
@@ -48,13 +48,14 @@
 
 ## Tool 工具
 
-目前提供了一下`tool`:
+目前提供了以下`tool`:
 
 - [x]  `add-schedule`： 添加日程或提醒，如果用户没有指定结束时间: end，则默认结束时间为开始时间: start或提醒时间: reminder加一小时
 - [x]  `get-current-date`： 获取当前日期，进行日程操作时先执行这个更新日期 
 - [x]  `get-schedules`： 根据时间区间获取当前日程
 - [×]  `delete-schedule`: 删除日程
-- [ ]  ...  
+- [x]  `clear-all-schedules`: 清空所有日程
+- [ ]  ...
 
 
 常见编辑器简易使用教程：

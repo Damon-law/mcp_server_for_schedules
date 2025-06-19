@@ -2,7 +2,7 @@
  * @Author: Damon Liu
  * @Date: 2025-04-27 13:53:33
  * @LastEditors: Damon Liu
- * @LastEditTime: 2025-06-18 15:06:29
+ * @LastEditTime: 2025-06-19 10:59:52
  * @Description:
  */
 // 适配低版本的node写法
@@ -80,10 +80,10 @@ async function createNode(port) {
     });
     // 监听节点启动事件
     node.addEventListener('start', () => {
-        console.log(`节点已启动，ID: ${node.peerId.toString()}`);
+        //console.log(`节点已启动，ID: ${node.peerId.toString()}`)
         const addresses = node.getMultiaddrs().map(addr => addr.toString());
-        console.log('监听地址:');
-        addresses.forEach(addr => console.log(addr));
+        //console.log('监听地址:')
+        //addresses.forEach(addr => console.log(addr))
     });
     // 监听消息事件
     node.handle(chatProtocol, async ({ stream }) => {
@@ -101,35 +101,41 @@ async function createNode(port) {
             // For each chunk of data
             for await (const msg of source) {
                 // Output the data as a utf8 string
-                console.log('> ' + msg.toString().replace('\n', ''));
+                //console.log('> ' + msg.toString().replace('\n', ''))
                 try {
+                    // 序列化节点消息
                     const res = JSON.parse(msg.toString().replace('\n', ''));
+                    // 处理新增消息回调
                     if (res.type === 'add-schedule-resolve') {
                         if (addScheduleResolve) {
                             addScheduleResolve(res.data);
                             addScheduleResolve = null;
                         }
                     }
+                    // 处理查询消息回调
                     else if (res.type === 'check-schedule-resolve') {
                         if (checkScheduleResolve) {
                             checkScheduleResolve(res.data);
                             checkScheduleResolve = null;
                         }
                     }
+                    // 处理删除消息回调
                     else if (res.type === 'delete-schedule-resolve') {
                         if (deleteScheduleResolve) {
                             deleteScheduleResolve(res.data);
                             deleteScheduleResolve = null;
                         }
                     }
+                    // 处理清空消息回调
+                    else if(res.type === 'clear-all-schedules-resolve') {
+                        if (clearAllSchedulesResolve) {
+                            clearAllSchedulesResolve(res.data);
+                            clearAllSchedulesResolve = null;
+                        }
+                    }
                 }
                 catch (error) {
-                    if (addScheduleResolve) {
-                        addScheduleResolve({
-                            message: '序列化失败'
-                        });
-                    }
-                    console.log('序列化失败');
+                    
                 }
             }
         });
@@ -139,20 +145,19 @@ async function createNode(port) {
     // 这里尝试使用更宽泛的 CustomEvent 类型，暂时不指定具体泛型参数
     node.addEventListener('peer:discovery', (event) => {
         const peerInfo = event.detail;
-        console.log(`🔍 发现新节点: ${peerInfo.id.toString()}`);
+        //console.log(`🔍 发现新节点: ${peerInfo.id.toString()}`)
         const multiaddr = peerInfo.multiaddrs.find((addr) => addr.toString().includes('tcp'));
         // 自动连接发现的节点
         node.dialProtocol(multiaddr, chatProtocol).then((stream) => {
-            //streamToConsole(stream as any)
-            console.log(`✅ 已自动连接到节点: ${peerInfo.id.toString()}`);
+            // console.log(`✅ 已自动连接到节点: ${peerInfo.id.toString()}`)
         }).catch(err => {
-            console.error(`❌ 连接节点失败: ${err.message}`);
+            //console.error(`❌ 连接节点失败: ${err.message}`)
         });
     });
     node.addEventListener('peer:disconnect', (evt) => {
         //console.log(evt)
         const peerId = peerIdFromPublicKey(evt?.detail?.publicKey)?.toString();
-        console.log(`❌ 节点断开连接: ${peerId}`);
+        //console.log(`❌ 节点断开连接: ${peerId}`)
     });
     await node.start();
     return node;
@@ -246,16 +251,11 @@ server.tool('get-schedules', '获取日程', {
             });
         }
         node?.getPeers().forEach(async (peerId) => {
-            //const stream = peerIdToStreamMap[peerId.toString()];
             const addr = (await node?.peerStore.getInfo(peerId))?.multiaddrs?.find((addr) => addr.toString().includes('tcp'));
             if (!addr) {
                 return;
             }
             const stream = await node?.dialProtocol(addr, chatProtocol);
-            /* const strem = (await node?.dialProtocol( ((await node?.peerStore.getInfo(peerId)).multiaddrs[0]))  ) */
-            /*  node?.getConnections().forEach(connetion => {
-               connetion.
-             }) */
             if (stream) {
                 const json = {
                     type: 'get-schedules',
@@ -328,18 +328,12 @@ async function main() {
         node = await createNode(0);
     }
     await server.connect(transport);
-    // 处理 SIGINT 信号
-    process.on('SIGINT', async () => {
+    // 处理 exit
+    process.on('exit', async () => {
         await node?.stop();
         node = null;
         process.exit(0);
     });
-    // 处理 SIGTERM 信号
-    /*  process.on('SIGTERM', async () => {
-       await node?.stop();
-       node = null;
-       process.exit(0);
-     }); */
     console.error("Schedule MCP Server running on stdio");
 }
 // 启动

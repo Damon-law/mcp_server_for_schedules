@@ -2,7 +2,7 @@
  * @Author: Damon Liu
  * @Date: 2025-04-27 13:53:33
  * @LastEditors: Damon Liu
- * @LastEditTime: 2025-06-18 16:05:33
+ * @LastEditTime: 2025-06-19 10:31:08
  * @Description: 
  */
 // 适配低版本的node写法
@@ -64,6 +64,9 @@ let addScheduleResolve: Function | null = null;
 let checkScheduleResolve: Function | null = null;
 // 删除日程回调
 let deleteScheduleResolve: Function | null = null;
+// 清除所有日程回调
+let clearAllSchedulesResolve: Function | null = null;
+
 
 const chatProtocol = '/mcpSchedules/1.0.0'
 
@@ -93,10 +96,10 @@ async function createNode(port: number): Promise<Libp2p> {
 
   // 监听节点启动事件
   node.addEventListener('start', () => {
-    console.log(`节点已启动，ID: ${node.peerId.toString()}`)
+    //console.log(`节点已启动，ID: ${node.peerId.toString()}`)
     const addresses = node.getMultiaddrs().map(addr => addr.toString())
-    console.log('监听地址:')
-    addresses.forEach(addr => console.log(addr))
+    //console.log('监听地址:')
+    //addresses.forEach(addr => console.log(addr))
   });
 
   // 监听消息事件
@@ -115,7 +118,7 @@ async function createNode(port: number): Promise<Libp2p> {
         // For each chunk of data
         for await (const msg of source) {
           // Output the data as a utf8 string
-          console.log('> ' + msg.toString().replace('\n', ''))
+          //console.log('> ' + msg.toString().replace('\n', ''))
           try {
             const res = JSON.parse(msg.toString().replace('\n', ''));
             if (res.type === 'add-schedule-resolve') {
@@ -140,7 +143,6 @@ async function createNode(port: number): Promise<Libp2p> {
                 message: '序列化失败'
               } )
             }
-            console.log('序列化失败')
           }
         }
       }
@@ -152,23 +154,21 @@ async function createNode(port: number): Promise<Libp2p> {
   // 这里尝试使用更宽泛的 CustomEvent 类型，暂时不指定具体泛型参数
   node.addEventListener('peer:discovery', (event: CustomEvent<any>) => {
     const peerInfo = event.detail
-    console.log(`🔍 发现新节点: ${peerInfo.id.toString()}`)
+    //console.log(`🔍 发现新节点: ${peerInfo.id.toString()}`)
     const multiaddr = peerInfo.multiaddrs.find((addr: any) => addr.toString().includes('tcp'));
 
     // 自动连接发现的节点
     node.dialProtocol(multiaddr, chatProtocol).then((stream) => {
-      //streamToConsole(stream as any)
-      console.log(`✅ 已自动连接到节点: ${peerInfo.id.toString()}`)
+     // console.log(`✅ 已自动连接到节点: ${peerInfo.id.toString()}`)
     }).catch(err => {
-      console.error(`❌ 连接节点失败: ${err.message}`)
+      //console.error(`❌ 连接节点失败: ${err.message}`)
     })
   })
 
   node.addEventListener('peer:disconnect', (evt: any) => {
     //console.log(evt)
     const peerId = peerIdFromPublicKey(evt?.detail?.publicKey)?.toString();
-    console.log(`❌ 节点断开连接: ${peerId}`)
-
+    //console.log(`❌ 节点断开连接: ${peerId}`)
   })
 
 
@@ -345,6 +345,47 @@ server.tool('delete-schedule', '删除日程', {
   };
 });
 
+// 清除所有日程
+server.tool('clear-all-schedules', '清除所有日程', {
+}, async ({ }) => {
+  const res = await new Promise((resolve, reject) => {
+    clearAllSchedulesResolve = resolve;
+    if(node?.getPeers().length === 0) {
+      clearAllSchedulesResolve = null;
+      resolve({
+        message: '清除所有日程失败，没有链接节点'
+      })
+    }
+    node?.getPeers().forEach(async (peerId) => {
+      const addr =  (await node?.peerStore.getInfo(peerId))?.multiaddrs?.find((addr: any) => addr.toString().includes('tcp'));
+      if(!addr) {
+        return ;
+      }
+      const stream = await node?.dialProtocol(addr, chatProtocol);
+      if (stream) {
+        const json = {
+          type: 'clear-all-schedules',
+          fromPeer: node?.peerId.toString()
+        }
+        pipe(
+          [JSON.stringify(json)],
+          // Turn strings into buffers
+          (source) => map(source, (string) => uint8ArrayFromString(string)),
+          // Encode with length prefix (so receiving side knows how much data is coming)
+          (source) => lp.encode(source),
+          // Write to the stream (the sink)
+          stream.sink
+        )
+      }
+    })
+  }) as any;
+  return {
+    content: [{
+      type: 'text',
+      text: res.success ? '清除所有日程成功' : '清除所有日程失败'
+    }]
+  };
+});
 
 // p2pnode
 let node: Libp2p | null = null;
