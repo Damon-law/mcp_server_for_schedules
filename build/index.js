@@ -2,7 +2,7 @@
  * @Author: Damon Liu
  * @Date: 2025-04-27 13:53:33
  * @LastEditors: Damon Liu
- * @LastEditTime: 2025-06-19 10:59:52
+ * @LastEditTime: 2025-06-20 16:08:09
  * @Description:
  */
 // 适配低版本的node写法
@@ -54,6 +54,8 @@ let addScheduleResolve = null;
 let checkScheduleResolve = null;
 // 删除日程回调
 let deleteScheduleResolve = null;
+// 清除所有日程回调
+let clearAllSchedulesResolve = null;
 const chatProtocol = '/mcpSchedules/1.0.0';
 async function createNode(port) {
     const node = await createLibp2p({
@@ -103,31 +105,26 @@ async function createNode(port) {
                 // Output the data as a utf8 string
                 //console.log('> ' + msg.toString().replace('\n', ''))
                 try {
-                    // 序列化节点消息
                     const res = JSON.parse(msg.toString().replace('\n', ''));
-                    // 处理新增消息回调
                     if (res.type === 'add-schedule-resolve') {
                         if (addScheduleResolve) {
                             addScheduleResolve(res.data);
                             addScheduleResolve = null;
                         }
                     }
-                    // 处理查询消息回调
                     else if (res.type === 'check-schedule-resolve') {
                         if (checkScheduleResolve) {
                             checkScheduleResolve(res.data);
                             checkScheduleResolve = null;
                         }
                     }
-                    // 处理删除消息回调
                     else if (res.type === 'delete-schedule-resolve') {
                         if (deleteScheduleResolve) {
                             deleteScheduleResolve(res.data);
                             deleteScheduleResolve = null;
                         }
                     }
-                    // 处理清空消息回调
-                    else if(res.type === 'clear-all-schedules-resolve') {
+                    else if (res.type === 'clear-all-schedules-resolve') {
                         if (clearAllSchedulesResolve) {
                             clearAllSchedulesResolve(res.data);
                             clearAllSchedulesResolve = null;
@@ -135,7 +132,11 @@ async function createNode(port) {
                     }
                 }
                 catch (error) {
-                    
+                    if (addScheduleResolve) {
+                        addScheduleResolve({
+                            message: '序列化失败'
+                        });
+                    }
                 }
             }
         });
@@ -317,6 +318,44 @@ server.tool('delete-schedule', '删除日程', {
         content: [{
                 type: 'text',
                 text: res.id ? '日程删除成功' : '日程删除失败'
+            }]
+    };
+});
+// 清除所有日程
+server.tool('clear-all-schedules', '清除所有日程', {}, async ({}) => {
+    const res = await new Promise((resolve, reject) => {
+        clearAllSchedulesResolve = resolve;
+        if (node?.getPeers().length === 0) {
+            clearAllSchedulesResolve = null;
+            resolve({
+                message: '清除所有日程失败，没有链接节点'
+            });
+        }
+        node?.getPeers().forEach(async (peerId) => {
+            const addr = (await node?.peerStore.getInfo(peerId))?.multiaddrs?.find((addr) => addr.toString().includes('tcp'));
+            if (!addr) {
+                return;
+            }
+            const stream = await node?.dialProtocol(addr, chatProtocol);
+            if (stream) {
+                const json = {
+                    type: 'clear-all-schedules',
+                    fromPeer: node?.peerId.toString()
+                };
+                pipe([JSON.stringify(json)], 
+                // Turn strings into buffers
+                (source) => map(source, (string) => uint8ArrayFromString(string)), 
+                // Encode with length prefix (so receiving side knows how much data is coming)
+                (source) => lp.encode(source), 
+                // Write to the stream (the sink)
+                stream.sink);
+            }
+        });
+    });
+    return {
+        content: [{
+                type: 'text',
+                text: res.success ? '清除所有日程成功' : '清除所有日程失败'
             }]
     };
 });
