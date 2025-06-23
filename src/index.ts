@@ -2,7 +2,7 @@
  * @Author: Damon Liu
  * @Date: 2025-04-27 13:53:33
  * @LastEditors: Damon Liu
- * @LastEditTime: 2025-06-20 16:03:58
+ * @LastEditTime: 2025-06-23 10:50:37
  * @Description: 
  */
 // 适配低版本的node写法
@@ -137,7 +137,7 @@ async function createNode(port: number): Promise<Libp2p> {
                 deleteScheduleResolve = null;
               }
             }
-            else if(res.type === 'clearAllSchedulesResolve') {
+            else if(res.type === 'clear-all-schedules-resolve') {
               if(clearAllSchedulesResolve) {
                 clearAllSchedulesResolve(res.data);
                 clearAllSchedulesResolve = null;
